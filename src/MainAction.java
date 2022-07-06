@@ -4,14 +4,13 @@ import com.alibaba.fastjson.JSONObject;
 import com.engine.common.util.ServiceUtil;
 import com.engine.workflow.service.HtmlToPdfService;
 import com.engine.workflow.service.impl.HtmlToPdfServiceImpl;
-import com.engine.workrelate.logging.Logger;
-import com.engine.workrelate.logging.LoggerFactory;
+
 import com.sun.istack.Nullable;
 
 
 import dm.jdbc.util.StringUtil;
 
-import lombok.SneakyThrows;
+
 import org.apache.http.Consts;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
@@ -24,8 +23,12 @@ import org.apache.http.impl.client.DefaultHttpClient;
 
 import weaver.conn.RecordSet;
 import weaver.file.ImageFileManager;
+import weaver.general.BaseBean;
 import weaver.general.Util;
+import weaver.integration.logging.Logger;
+import weaver.integration.logging.LoggerFactory;
 import weaver.interfaces.workflow.action.Action;
+import weaver.interfaces.workflow.action.javacode.Action20220706102143;
 import weaver.soa.workflow.request.RequestInfo;
 import weaver.workflow.request.RequestManager;
 import weaver.integration.util.HTTPUtil;
@@ -44,8 +47,8 @@ import java.util.*;
  * @date : 2022/06/30
  */
 
-public class MainAction implements Action {
-    private static Logger newLog = LoggerFactory.getLogger(MainAction.class);
+public class MainAction extends BaseBean implements Action {
+    private static Logger newLog = LoggerFactory.getLogger(Action20220706102143.class);
     private static final String co = "200";
     /**
      * 融资OA申请单
@@ -61,7 +64,7 @@ public class MainAction implements Action {
     private static final String APPENDIX = "APPENDIX";
 
 
-    @SneakyThrows
+
     @Override
     public String execute(RequestInfo requestInfo) {
 
@@ -74,13 +77,14 @@ public class MainAction implements Action {
         String workflowId = requestInfo.getWorkflowid();
         //流程数据库表名
         String billTableName = requestManager.getBillTableName();
+        newLog.info("请求ID，流程ID，数据库表名"+requestId+workflowId+billTableName);
 
         RecordSet recordSet = new RecordSet();
-        String sql ="select * from ? where requestId= ?";
-        recordSet.executeQuery(sql,billTableName,requestId);
+        String sql ="select * from "+billTableName+" where requestId="+requestId;
+        recordSet.execute(sql);
         if (recordSet.next()){
 
-            /**
+            /*
              * 文件信息推送
              */
 
@@ -88,6 +92,7 @@ public class MainAction implements Action {
             String content = Util.null2String(recordSet.getString("zw"));
             if (StringUtil.isNotEmpty(content)){
                 String s = upDocFile(content, workflowId, MAIN_BODY);
+
                 newLog.info("流程正文上传响应结果："+s);
             }
 
@@ -101,7 +106,7 @@ public class MainAction implements Action {
             String s = uploadFileFromToPDF(requestId,workflowId, APPLY_FORM);
             newLog.info("流程表单转PDF上传响应结果："+s);
 
-            /**
+            /*
              * 基础信息推送
              */
 
@@ -113,15 +118,12 @@ public class MainAction implements Action {
             //来文编号
             String wordNo = Util.null2String(recordSet.getString("swbh"));
             flowInfo.put("wordNo",wordNo);
-            //TODO 工商号
-            flowInfo.put("businessLicense","");
-            //TODO 申请融资金额汇总
-            flowInfo.put("financingAmount","22.19");
             //申请日期
             String date = Util.null2String(recordSet.getString("sj"));
             flowInfo.put("applyDate",date.replace("-", ""));
             //TODO 发起人名称
             String name = Util.null2String(recordSet.getString("swgly"));
+
             flowInfo.put("applyUser", "admin");
             //审批最终通过日期
             flowInfo.put("appliedDate",LocalDate.now().toString().replace("-", ""));
@@ -132,16 +134,13 @@ public class MainAction implements Action {
             //返回的信息
             String resp = HTTPUtil.doPost(url, flowInfo);
             newLog.info("补全表单基本信息响应结果："+resp);
-            return Action.SUCCESS;
 
+            return Action.SUCCESS;
 
         }
 
         return Action.FAILURE_AND_CONTINUE;
     }
-
-
-
 
 
 
@@ -154,7 +153,7 @@ public class MainAction implements Action {
      * @param  fileType 文件类型
      * @return 返回上传的信息builder
      */
-    public String upDocFile(String cid, String flowCode, String fileType) throws IOException {
+    public String upDocFile(String cid, String flowCode, String fileType)  {
 
         StringBuilder message= new StringBuilder();
         if ("".equals(Util.null2String(cid))) {
@@ -175,7 +174,7 @@ public class MainAction implements Action {
                     imageFileManager.getImageFileInfoById(Integer.parseInt(id));
                     //获得文件输入流
                     InputStream stream = imageFileManager.getInputStream();
-                    File file = new File("E:\\WEAVER\\file_temp\\" + imageFileName);
+                    File file = new File("/Users/zhaoyao/Desktop/ETST" + imageFileName);
                     //将二进制转文件
                     try {
                         inputStream2File(stream, file);
@@ -191,7 +190,6 @@ public class MainAction implements Action {
         }
         return message.toString();
     }
-
 
     /**
      * 上传文件
@@ -248,7 +246,7 @@ public class MainAction implements Action {
             params.put("isTest", "O");
             params.put("useWk", 1);
             //生成临时文件的目录
-            params.put("path", "E:/WEAVER/file_temp");
+            params.put("path", "/Users/zhaoyao/Desktop/ETST");
             params.put("filename", "Z"+"批阅单" + requestId);
 
             //获取到html转pdf的service
@@ -332,9 +330,10 @@ public class MainAction implements Action {
 
     /**
      * 将inputStream转化为file
-     * @param is
+     * @param is 二进制流
      * @param file 要输出的文件目录
      */
+
     public static void inputStream2File (InputStream is, File file) throws IOException {
         OutputStream os = null;
         try {
@@ -353,14 +352,14 @@ public class MainAction implements Action {
 
     /**
      * String 转化  list
-     * @param s
-     * @return
+     * @param s 以逗号隔开的字符串
+     * @return 返回去掉逗号的数组字符集合
      */
+
     public static List<String> stringToList(String s) {
         String[] split = s.split(",");
         return Arrays.asList(split);
     }
-
 
     /**
      * 根据流程 ID返回所有审批节点的信息 数组集合
@@ -371,7 +370,7 @@ public class MainAction implements Action {
     public  static  ArrayList<HashMap<String, String>> nodeInfos(String workflowId){
         ArrayList<HashMap<String, String>> flowNodes = new ArrayList<>();
         HashMap<String, String> nodeInfo= new HashMap<>(16);
-        String sql="select a.REMARK,a.OPERATEDATE,a.OPERATOR,a.NODEID,b.GROUPNAME from ecology.workflow_requestlog as  a left join ecology.workflow_nodegroup as b on a.NODEID=b.NODEID where a.WORKFLOWID=?";
+        String sql="select a.REMARK,a.OPERATEDATE,a.OPERATOR,a.NODEID,b.NODENAME from ecology.workflow_requestlog as  a left join ecology.workflow_nodebase as b on a.NODEID=b.id where a.WORKFLOWID=?";
         RecordSet recordSet = new RecordSet();
         recordSet.executeQuery(sql,workflowId);
         while (recordSet.next()){
@@ -381,8 +380,8 @@ public class MainAction implements Action {
             String NODEID = Util.null2String(recordSet.getString("NODEID"));
             nodeInfo.put("nodeId",NODEID);
             //节点名
-            String GROUPNAME = Util.null2String(recordSet.getString("GROUPNAME"));
-            nodeInfo.put("nodeName",GROUPNAME);
+            String NODENAME = Util.null2String(recordSet.getString("NODENAME"));
+            nodeInfo.put("nodeName",NODENAME);
             //审批人ID
             String OPERATOR = Util.null2String(recordSet.getString("OPERATOR"));
             nodeInfo.put("approveUserId",OPERATOR);
