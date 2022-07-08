@@ -1,17 +1,11 @@
-package weaver.interfaces.workflow.action.javacode;
+package weaver.interfaces.cron;
 
 import com.alibaba.fastjson.JSONObject;
-
 import com.engine.common.util.ServiceUtil;
 import com.engine.workflow.service.HtmlToPdfService;
 import com.engine.workflow.service.impl.HtmlToPdfServiceImpl;
-
 import com.sun.istack.Nullable;
-
-
 import dm.jdbc.util.StringUtil;
-
-
 import org.apache.http.Consts;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
@@ -22,37 +16,29 @@ import org.apache.http.entity.mime.MultipartEntityBuilder;
 import org.apache.http.entity.mime.content.FileBody;
 import org.apache.http.entity.mime.content.StringBody;
 import org.apache.http.impl.client.DefaultHttpClient;
-
 import weaver.conn.RecordSet;
 import weaver.file.ImageFileManager;
-import weaver.general.BaseBean;
 import weaver.general.Util;
 import weaver.hrm.User;
 import weaver.integration.logging.Logger;
 import weaver.integration.logging.LoggerFactory;
-import weaver.interfaces.workflow.action.Action;
-import weaver.soa.workflow.request.RequestInfo;
-import weaver.workflow.request.RequestManager;
+import weaver.interfaces.schedule.BaseCronJob;
+
 
 import java.io.*;
-
-
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.*;
 
-
 /**
- * Description: 附件上传，正文上传，表单转pdf上传
+ * Description: 定时同步之前的业务数据
  *
  * @author : Zao Yao
- * @date : 2022/06/30
+ * @date : 2022/07/07
  */
 
-public class Action20220706102143 extends BaseBean implements Action {
-    private static Logger newLog = LoggerFactory.getLogger(Action20220706102143.class);
-
-    private static final String co = "200";
+public class DataSynChrOnIsm extends BaseCronJob {
+    private static Logger newLog = LoggerFactory.getLogger(DataSynChrOnIsm.class);
     /**
      * 融资OA申请单
      */
@@ -69,76 +55,18 @@ public class Action20220706102143 extends BaseBean implements Action {
      * 临时目录
      */
     private static final String PATH = "/usr/weaver/temporaryFiles";
-
-
     @Override
-    public String execute(RequestInfo requestInfo) {
-
-
-        HashMap<String, Object> flowInfo = new HashMap<>(16);
-
-        RequestManager requestManager = requestInfo.getRequestManager();
-        //请求ID
-        String requestId = requestInfo.getRequestid();
-        //流程ID
-        String workflowId = requestInfo.getWorkflowid();
-        //流程数据库表名
-        String billTableName = requestManager.getBillTableName();
-        newLog.info("请求ID，流程ID，数据库表名" + requestId + workflowId + billTableName);
-
+    public void execute() {
+        newLog.info("============进入 公文批阅单（上行文）流程推送 砼联 系统 程序 ===========");
+        String sql="select  a.*,b.requestname from formtable_main_121 a,workflow_requestbase b  where a.requestid=b.requestid  and b.currentnodetype=3";
         RecordSet recordSet = new RecordSet();
-        String sql = "select * from " + billTableName + " where requestId=" + requestId;
+        newLog.info("查询所有历史表单数据："+sql);
         recordSet.execute(sql);
-
-        if (recordSet.next()) {
-
-
-            /*
-             * 文件信息推送
-             */
-
-            //正文
-            String content = Util.null2String(recordSet.getString("zw"));
-            if (StringUtil.isNotEmpty(content)) {
-                ArrayList<Map<String, Object>> maps = upDocFile(content, requestId, MAIN_BODY);
-
-                for (Map<String, Object> map : maps) {
-                    String msg = map.get("msg").toString();
-                    newLog.info("流程正文上传响应结果：" + msg);
-                    if (!co.equals(map.get("code").toString())) {
-                        requestInfo.getRequestManager().setMessageid("123#123");
-                        requestInfo.getRequestManager().setMessagecontent("正文推送 砼联 失败：" + msg);
-                        return Action.FAILURE_AND_CONTINUE;
-                    }
-
-                }
-
-            }
-
-            //附件
-            String accessory = Util.null2String(recordSet.getString("fjsc"));
-            if (StringUtil.isNotEmpty(accessory)) {
-                ArrayList<Map<String, Object>> maps = upDocFile(accessory, requestId, APPENDIX);
-                for (Map<String, Object> map : maps) {
-                    String msg = map.get("msg").toString();
-                    newLog.info("流程附件上传响应结果：" + msg);
-                    if (!co.equals(map.get("code").toString())) {
-                        requestInfo.getRequestManager().setMessageid("123#123");
-                        requestInfo.getRequestManager().setMessagecontent("附件推送 砼联 失败：" + msg);
-                        return Action.FAILURE_AND_CONTINUE;
-                    }
-                }
-
-
-            }
-
-
-
-            /*
-             * 基础信息推送
-             */
-
+        while (recordSet.next()) {
+            newLog.info("查询到结果，处理业务");
+            HashMap<String, Object> flowInfo = new HashMap<>(16);
             //流程ID
+            String requestId = Util.null2String(recordSet.getString("requestid"));
             flowInfo.put("flowCode", requestId);
             //标题
             String title = Util.null2String(recordSet.getString("bt"));
@@ -151,7 +79,6 @@ public class Action20220706102143 extends BaseBean implements Action {
             flowInfo.put("applyDate", date.replace("-", ""));
             //发起人姓名
             int swgly = Util.getIntValue(recordSet.getString("swgly"));
-
             flowInfo.put("applyUser", getUsr(swgly));
             //审批最终通过日期
             flowInfo.put("appliedDate", LocalDate.now().toString().replace("-", ""));
@@ -165,31 +92,51 @@ public class Action20220706102143 extends BaseBean implements Action {
             Map<String, Object> pdf = JSONObject.parseObject(postDoJson, Map.class);
             String msg = pdf.get("msg").toString();
             newLog.info("流程表单基础信息响应结果：" + msg);
-            if (!co.equals(pdf.get("code").toString())) {
-                requestInfo.getRequestManager().setMessageid("123#123");
-                requestInfo.getRequestManager().setMessagecontent("表单信息推送 砼联 失败：" + msg);
-                return Action.FAILURE_AND_CONTINUE;
+
+
+
+            //正文
+            String content = Util.null2String(recordSet.getString("zw"));
+            if (StringUtil.isNotEmpty(content)) {
+                newLog.info("获取到正文ID："+content);
+                ArrayList<Map<String, Object>> maps = upDocFile(content, requestId, MAIN_BODY);
+
+                for (Map<String, Object> map : maps) {
+                    String zmsg = map.get("msg").toString();
+                    newLog.info("流程正文上传响应结果：" + zmsg);
+
+
+                }
+
             }
+
+            //附件
+            String accessory = Util.null2String(recordSet.getString("fjsc"));
+            if (StringUtil.isNotEmpty(accessory)) {
+                ArrayList<Map<String, Object>> maps = upDocFile(accessory, requestId, APPENDIX);
+                for (Map<String, Object> map : maps) {
+                    String fmsg = map.get("msg").toString();
+                    newLog.info("流程附件上传响应结果：" + fmsg);
+
+                }
+
+
+            }
+
+
 
 
             //pdf表单
             Map<String, Object> map = uploadFileFromToPDF(requestId, APPLY_FORM);
             String msg1 = map.get("msg").toString();
             newLog.info("流程表单转PDF上传响应结果：" + msg1);
-            if (!co.equals(map.get("code").toString())) {
-                requestInfo.getRequestManager().setMessageid("123#123");
-                requestInfo.getRequestManager().setMessagecontent("表单信息推送 砼联 失败：" + msg1);
-                return Action.FAILURE_AND_CONTINUE;
-            }
 
-
-            return Action.SUCCESS;
 
         }
 
-        requestInfo.getRequestManager().setMessageid("123#123");
-        requestInfo.getRequestManager().setMessagecontent("表单信息推送 砼联 失败，请联系管理员！");
-        return Action.FAILURE_AND_CONTINUE;
+
+
+        newLog.info("--------------上传完成："+LocalDate.now().toString()+"--------------");
     }
 
 
@@ -204,6 +151,7 @@ public class Action20220706102143 extends BaseBean implements Action {
      */
     public ArrayList<Map<String, Object>> upDocFile(String cid, String flowCode, String fileType) {
 
+        newLog.info("上传文件开始");
         ArrayList<Map<String, Object>> maps = new ArrayList<>();
         if ("".equals(Util.null2String(cid))) {
             newLog.info("未获取到文档的ID");
@@ -471,6 +419,7 @@ public class Action20220706102143 extends BaseBean implements Action {
         recordSet.next();
         return Util.null2String(recordSet.getString("LASTNAME"));
     }
+
 
 
 }
