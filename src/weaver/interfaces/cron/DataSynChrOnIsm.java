@@ -18,6 +18,7 @@ import org.apache.http.entity.mime.content.StringBody;
 import org.apache.http.impl.client.DefaultHttpClient;
 import weaver.conn.RecordSet;
 import weaver.file.ImageFileManager;
+import weaver.file.Prop;
 import weaver.general.Util;
 import weaver.hrm.User;
 import weaver.integration.logging.Logger;
@@ -40,103 +41,118 @@ import java.util.*;
 public class DataSynChrOnIsm extends BaseCronJob {
     private static Logger newLog = LoggerFactory.getLogger(DataSynChrOnIsm.class);
     /**
-     * 融资OA申请单
-     */
-    private static final String APPLY_FORM = "APPLY_FORM";
-    /**
-     * 正文
-     */
-    private static final String MAIN_BODY = "MAIN_BODY";
-    /**
-     * 附件
-     */
-    private static final String APPENDIX = "APPENDIX";
-    /**
      * 临时目录
      */
     private static final String PATH = "/usr/weaver/temporaryFiles";
+
     @Override
     public void execute() {
+
         newLog.info("============进入 公文批阅单（上行文）流程推送 砼联 系统 程序 ===========");
-        String sql="select  a.*,b.requestname from formtable_main_121 a,workflow_requestbase b  where a.requestid=b.requestid  and b.currentnodetype=3";
+
+        String APPLY_FORM = Prop.getPropValue("ConcreteSystems", "APPLY_FORM");
+        newLog.info("从properties那到的融资OA申请单类型：" + APPLY_FORM);
+        String MAIN_BODY = Prop.getPropValue("ConcreteSystems", "MAIN_BODY");
+        newLog.info("从properties那到的正文类型：" + MAIN_BODY);
+        String APPENDIX = Prop.getPropValue("ConcreteSystems", "APPENDIX");
+        newLog.info("从properties那到的附件类型：" + APPENDIX);
+
+        String sql = "select  a.*,b.requestname from formtable_main_121 a,workflow_requestbase b  where a.requestid=b.requestid  and b.currentnodetype=3";
         RecordSet recordSet = new RecordSet();
-        newLog.info("查询所有历史表单数据："+sql);
+        newLog.info("查询所有历史表单数据：" + sql);
         recordSet.execute(sql);
         while (recordSet.next()) {
             newLog.info("查询到结果，处理业务");
-            HashMap<String, Object> flowInfo = new HashMap<>(16);
-            //流程ID
-            String requestId = Util.null2String(recordSet.getString("requestid"));
-            flowInfo.put("flowCode", requestId);
             //标题
-            String title = Util.null2String(recordSet.getString("bt"));
-            flowInfo.put("title", title);
-            //来文编号
-            String wordNo = Util.null2String(recordSet.getString("swbh"));
-            flowInfo.put("wordNo", wordNo);
-            //申请日期
-            String date = Util.null2String(recordSet.getString("sj"));
-            flowInfo.put("applyDate", date.replace("-", ""));
-            //发起人姓名
-            int swgly = Util.getIntValue(recordSet.getString("swgly"));
-            flowInfo.put("applyUser", getUsr(swgly));
-            //审批最终通过日期
-            flowInfo.put("appliedDate", LocalDate.now().toString().replace("-", ""));
-            //所有节点信息
-            ArrayList<HashMap<String, String>> flowNodes = nodeInfos(requestId);
-            flowInfo.put("flowNodes", flowNodes);
-            String url = "http://172.24.100.75:9203/expose/oa/complete";
-            //返回的信息
-            String params = JSONObject.toJSONString(flowInfo);
-            String postDoJson = postDoJson(url, params);
-            Map<String, Object> pdf = JSONObject.parseObject(postDoJson, Map.class);
-            String msg = pdf.get("msg").toString();
-            newLog.info("流程表单基础信息响应结果：" + msg);
+            String strT = Util.null2String(recordSet.getString("bt"));
+            String[] strArray = {"金融", "供应链", "融资"};
+            if (strContains(strT, strArray)) {
+                newLog.info("++++++++》》》》》》包含关键词开始流程推送 砼联 系统 程序");
+                HashMap<String, Object> flowInfo = new HashMap<>(16);
+                //流程ID
+                String requestId = Util.null2String(recordSet.getString("requestid"));
+                flowInfo.put("flowCode", requestId);
+                //标题
+                String title = Util.null2String(recordSet.getString("bt"));
+                flowInfo.put("title", title);
+                //来文编号
+                String wordNo = Util.null2String(recordSet.getString("swbh"));
+                flowInfo.put("wordNo", wordNo);
+                //申请日期
+                String date = Util.null2String(recordSet.getString("sj"));
+                flowInfo.put("applyDate", date.replace("-", ""));
+                //发起人姓名
+                int swgly = Util.getIntValue(recordSet.getString("swgly"));
+                flowInfo.put("applyUser", getUsr(swgly));
+                //审批最终通过日期
+                flowInfo.put("appliedDate", LocalDate.now().toString().replace("-", ""));
+                //所有节点信息
+                ArrayList<HashMap<String, String>> flowNodes = nodeInfos(requestId);
+                flowInfo.put("flowNodes", flowNodes);
+                //String url = "http://172.24.100.75:9203/expose/oa/complete";
+                String url = Prop.getPropValue("ConcreteSystems", "nodeUrl");
+                newLog.info("从properties那到的表单详细信息上传地址：" + url);
+                //返回的信息
+                String params = JSONObject.toJSONString(flowInfo);
+                String postDoJson = postDoJson(url, params);
+                Map<String, Object> pdf = JSONObject.parseObject(postDoJson, Map.class);
+                String msg = pdf.get("msg").toString();
+                newLog.info("流程表单基础信息响应结果：" + msg);
 
 
+                //正文
+                String content = Util.null2String(recordSet.getString("zw"));
+                if (StringUtil.isNotEmpty(content)) {
+                    newLog.info("获取到正文ID：" + content);
+                    ArrayList<Map<String, Object>> maps = upDocFile(content, requestId, MAIN_BODY);
 
-            //正文
-            String content = Util.null2String(recordSet.getString("zw"));
-            if (StringUtil.isNotEmpty(content)) {
-                newLog.info("获取到正文ID："+content);
-                ArrayList<Map<String, Object>> maps = upDocFile(content, requestId, MAIN_BODY);
+                    for (Map<String, Object> map : maps) {
+                        String zmsg = map.get("msg").toString();
+                        newLog.info("流程正文上传响应结果：" + zmsg);
 
-                for (Map<String, Object> map : maps) {
-                    String zmsg = map.get("msg").toString();
-                    newLog.info("流程正文上传响应结果：" + zmsg);
+
+                    }
+
+                }
+
+                //附件
+                String accessory = Util.null2String(recordSet.getString("fjsc"));
+                if (StringUtil.isNotEmpty(accessory)) {
+                    ArrayList<Map<String, Object>> maps = upDocFile(accessory, requestId, APPENDIX);
+                    for (Map<String, Object> map : maps) {
+                        String fmsg = map.get("msg").toString();
+                        newLog.info("流程附件上传响应结果：" + fmsg);
+
+                    }
 
 
                 }
 
-            }
-
-            //附件
-            String accessory = Util.null2String(recordSet.getString("fjsc"));
-            if (StringUtil.isNotEmpty(accessory)) {
-                ArrayList<Map<String, Object>> maps = upDocFile(accessory, requestId, APPENDIX);
-                for (Map<String, Object> map : maps) {
-                    String fmsg = map.get("msg").toString();
-                    newLog.info("流程附件上传响应结果：" + fmsg);
-
-                }
+                //pdf表单
+                Map<String, Object> map = uploadFileFromToPDF(requestId, APPLY_FORM);
+                String msg1 = map.get("msg").toString();
+                newLog.info("流程表单转PDF上传响应结果：" + msg1);
 
 
             }
-
-
-
-
-            //pdf表单
-            Map<String, Object> map = uploadFileFromToPDF(requestId, APPLY_FORM);
-            String msg1 = map.get("msg").toString();
-            newLog.info("流程表单转PDF上传响应结果：" + msg1);
-
-
         }
 
+        newLog.info("--------------上传完成：" + LocalDate.now().toString() + "--------------");
+    }
 
 
-        newLog.info("--------------上传完成："+LocalDate.now().toString()+"--------------");
+    /**
+     * 是否包含这三个关键此
+     *
+     * @param str
+     * @return
+     */
+    public static boolean strContains(String str, String[] strArray) {
+        boolean an = false;
+        for (String s : strArray) {
+            an = str.contains(s);
+        }
+        return an;
     }
 
 
@@ -158,6 +174,7 @@ public class DataSynChrOnIsm extends BaseCronJob {
         } else {
             RecordSet recordSet = new RecordSet();
             String isextfile = "1";
+            String MAIN_BODY = Prop.getPropValue("ConcreteSystems", "MAIN_BODY");
             if (fileType.equals(MAIN_BODY)) {
                 isextfile = "''";
             }
@@ -214,7 +231,9 @@ public class DataSynChrOnIsm extends BaseCronJob {
         parameterMap.put("effectiveDate", LocalDate.now().toString().replace("-", ""));
 
         //上传文件地址
-        String url = "http://172.24.100.75:9203/expose/oa/upload";
+        //String url = "http://172.24.100.75:9203/expose/oa/upload";
+        String url = Prop.getPropValue("ConcreteSystems", "TheAttachmentUrl");
+        newLog.info("从properties那到的上传文件地址：" + url);
         //发送请求
         String responseMessage = doFromPost(url, parameterMap, fileMap);
         Map<String, Object> messageMap = JSONObject.parseObject(responseMessage, Map.class);
@@ -271,6 +290,7 @@ public class DataSynChrOnIsm extends BaseCronJob {
         try {
             HttpPost httpPost = new HttpPost(url);
             httpPost.addHeader("access_token", "access_799e5054eec64f828eef3ce7d4ad63fc");
+
             // 创建MultipartEntityBuilder
             MultipartEntityBuilder entityBuilder = MultipartEntityBuilder.create();
             // 追加普通表单字段
@@ -419,7 +439,6 @@ public class DataSynChrOnIsm extends BaseCronJob {
         recordSet.next();
         return Util.null2String(recordSet.getString("LASTNAME"));
     }
-
 
 
 }
