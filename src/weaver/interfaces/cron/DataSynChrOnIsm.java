@@ -33,7 +33,7 @@ import java.util.*;
 
 /**
  * Description: 定时同步之前的业务数据
- *
+ *0
  * @author : Zao Yao
  * @date : 2022/07/07
  */
@@ -57,7 +57,7 @@ public class DataSynChrOnIsm extends BaseCronJob {
         String APPENDIX = Prop.getPropValue("ConcreteSystems", "APPENDIX");
         newLog.info("从properties那到的附件类型：" + APPENDIX);
 
-        String sql = "select  a.*,b.requestname from formtable_main_121 a,workflow_requestbase b  where a.requestid=b.requestid  and b.currentnodetype=3";
+        String sql = "select  a.*,b.requestname from formtable_main_41 a,workflow_requestbase b  where a.requestid=b.requestid  and b.currentnodetype=3";
         RecordSet recordSet = new RecordSet();
         newLog.info("查询所有历史表单数据：" + sql);
         recordSet.execute(sql);
@@ -65,7 +65,7 @@ public class DataSynChrOnIsm extends BaseCronJob {
             newLog.info("查询到结果，处理业务");
             //标题
             String strT = Util.null2String(recordSet.getString("bt"));
-            String[] strArray = {"金融", "供应链", "融资"};
+            String[] strArray = {"银行", "供应链", "融资"};
             if (strContains(strT, strArray)) {
                 newLog.info("++++++++》》》》》》包含关键词开始流程推送 砼联 系统 程序");
                 HashMap<String, Object> flowInfo = new HashMap<>(16);
@@ -96,8 +96,7 @@ public class DataSynChrOnIsm extends BaseCronJob {
                 String params = JSONObject.toJSONString(flowInfo);
                 String postDoJson = postDoJson(url, params);
                 Map<String, Object> pdf = JSONObject.parseObject(postDoJson, Map.class);
-                String msg = pdf.get("msg").toString();
-                newLog.info("流程表单基础信息响应结果：" + msg);
+                newLog.info("流程表单基础信息响应结果：" + pdf.toString());
 
 
                 //正文
@@ -107,8 +106,8 @@ public class DataSynChrOnIsm extends BaseCronJob {
                     ArrayList<Map<String, Object>> maps = upDocFile(content, requestId, MAIN_BODY);
 
                     for (Map<String, Object> map : maps) {
-                        String zmsg = map.get("msg").toString();
-                        newLog.info("流程正文上传响应结果：" + zmsg);
+
+                        newLog.info("流程正文上传响应结果：" + map.toString());
 
 
                     }
@@ -118,10 +117,11 @@ public class DataSynChrOnIsm extends BaseCronJob {
                 //附件
                 String accessory = Util.null2String(recordSet.getString("fjsc"));
                 if (StringUtil.isNotEmpty(accessory)) {
+                    newLog.info("获取到附件ID：" + accessory);
                     ArrayList<Map<String, Object>> maps = upDocFile(accessory, requestId, APPENDIX);
+
                     for (Map<String, Object> map : maps) {
-                        String fmsg = map.get("msg").toString();
-                        newLog.info("流程附件上传响应结果：" + fmsg);
+                        newLog.info("流程附件上传响应结果："+ map.toString());
 
                     }
 
@@ -130,8 +130,8 @@ public class DataSynChrOnIsm extends BaseCronJob {
 
                 //pdf表单
                 Map<String, Object> map = uploadFileFromToPDF(requestId, APPLY_FORM);
-                String msg1 = map.get("msg").toString();
-                newLog.info("流程表单转PDF上传响应结果：" + msg1);
+
+                newLog.info("流程表单转PDF上传响应结果："+ map.toString());
 
 
             }
@@ -148,11 +148,15 @@ public class DataSynChrOnIsm extends BaseCronJob {
      * @return
      */
     public static boolean strContains(String str, String[] strArray) {
-        boolean an = false;
+        boolean u = false;
         for (String s : strArray) {
-            an = str.contains(s);
+            if (str.contains(s)) {
+                u=true;
+                return  u;
+            }
         }
-        return an;
+        return u;
+
     }
 
 
@@ -173,14 +177,16 @@ public class DataSynChrOnIsm extends BaseCronJob {
             newLog.info("未获取到文档的ID");
         } else {
             RecordSet recordSet = new RecordSet();
-            String isextfile = "1";
+            String isextfile = "'1'";
             String MAIN_BODY = Prop.getPropValue("ConcreteSystems", "MAIN_BODY");
             if (fileType.equals(MAIN_BODY)) {
                 isextfile = "''";
             }
-            String sql = "select imagefilename,imagefileid,id,DOCID,isextfile  from docimagefile where docid in (?) and isextfile=" + isextfile;
-            recordSet.executeQuery(sql, cid);
+            String sql = "select imagefilename,imagefileid,id,DOCID,isextfile  from docimagefile where docid in ("+cid+") and isextfile=" + isextfile;
+            newLog.info("查询文件的sql："+sql);
+            recordSet.execute(sql);
             if (recordSet.next()) {
+                newLog.info("查询文件的sql执行成功");
                 //文件名
                 String imageFileName = Util.null2String(recordSet.getString("imagefilename"));
                 //文件id
@@ -198,14 +204,29 @@ public class DataSynChrOnIsm extends BaseCronJob {
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
-                    //上传附件
-                    Map<String, Object> map = upLoaderFile(file, flowCode, fileType);
-                    maps.add(map);
+
+                    // 判断是不是附件和附件类型是不是excel
+                    String APPENDIX = Prop.getPropValue("ConcreteSystems", "APPENDIX");
+                    if (fileType.equals(APPENDIX)){
+                        String[] strArray = {".xls", ".xlsx"};
+                        String name = file.getName();
+                        String substring = name.substring(name.indexOf("."));
+                        if (strContains(substring,strArray)) {
+                            newLog.info("附件类型是excel开始上传");
+                            Map<String, Object> map = upLoaderFile(file, flowCode, fileType);
+                            maps.add(map);
+                        }
+                    }else {
+                        //上传正文和pdf
+                        Map<String, Object> map = upLoaderFile(file, flowCode, fileType);
+                        maps.add(map);
+                    }
                 }
             }
         }
         return maps;
     }
+
 
     /**
      * 上传文件
@@ -236,8 +257,9 @@ public class DataSynChrOnIsm extends BaseCronJob {
         newLog.info("从properties那到的上传文件地址：" + url);
         //发送请求
         String responseMessage = doFromPost(url, parameterMap, fileMap);
-        Map<String, Object> messageMap = JSONObject.parseObject(responseMessage, Map.class);
-        return messageMap;
+        String v = stream.delete() ? "清除临时文件" + stream.getName() + "成功" : "清除临时文件" + stream.getName() + "失败";
+        newLog.info(v);
+        return JSONObject.parseObject(responseMessage, Map.class);
 
     }
 
@@ -289,7 +311,7 @@ public class DataSynChrOnIsm extends BaseCronJob {
         String responseStr = "";
         try {
             HttpPost httpPost = new HttpPost(url);
-            httpPost.addHeader("access_token", "access_799e5054eec64f828eef3ce7d4ad63fc");
+            httpPost.addHeader("access-token", "access_799e5054eec64f828eef3ce7d4ad63fc");
 
             // 创建MultipartEntityBuilder
             MultipartEntityBuilder entityBuilder = MultipartEntityBuilder.create();
@@ -417,7 +439,7 @@ public class DataSynChrOnIsm extends BaseCronJob {
         String rep = "";
         HttpClient httpClient = new DefaultHttpClient();
         HttpPost httpPost = new HttpPost(url);
-        httpPost.addHeader("access_token", "access_799e5054eec64f828eef3ce7d4ad63fc");
+        httpPost.addHeader("access-token", "access_799e5054eec64f828eef3ce7d4ad63fc");
         httpPost.addHeader("Accept", "application/json");
         httpPost.setHeader("Content-Type", "application/json");
         String charSet = "UTF-8";
@@ -438,6 +460,23 @@ public class DataSynChrOnIsm extends BaseCronJob {
         recordSet.execute("select LASTNAME from hrmresource where ID=" + id);
         recordSet.next();
         return Util.null2String(recordSet.getString("LASTNAME"));
+    }
+
+
+    public static void main(String[] args) {
+        for (int i = 0; i <5 ; i++) {
+            String[] strArray = {".xls", ".xlsx"};
+            File file = new File("/Users/zhaoyao/Desktop/ETST/ETST附件：2022年6月供应链融资业务创效测算表.xls");
+            String name = file.getName();
+            String substring = name.substring(name.indexOf("."));
+            if (!strContains(substring, strArray)) {
+                System.out.println("5");
+            }
+
+        }
+
+
+
     }
 
 

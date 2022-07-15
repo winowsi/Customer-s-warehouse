@@ -23,6 +23,7 @@ import org.apache.http.entity.mime.content.FileBody;
 import org.apache.http.entity.mime.content.StringBody;
 import org.apache.http.impl.client.DefaultHttpClient;
 
+import org.apache.http.impl.client.HttpClientBuilder;
 import weaver.conn.RecordSet;
 import weaver.file.ImageFileManager;
 import weaver.file.Prop;
@@ -45,7 +46,7 @@ import java.util.*;
 
 /**
  * Description: 附件上传，正文上传，表单转pdf上传
- *
+ *0
  * @author : Zao Yao
  * @date : 2022/06/30
  */
@@ -83,15 +84,15 @@ public class Action20220706102143 extends BaseBean implements Action {
         String workflowId = requestInfo.getWorkflowid();
         //流程数据库表名
         String billTableName = requestManager.getBillTableName();
-        newLog.info("请求ID，流程ID，数据库表名" + requestId+":" + workflowId+":" + billTableName);
+        newLog.info("请求ID，流程ID，数据库表名" + requestId + ":" + workflowId + ":" + billTableName);
         RecordSet recordSet = new RecordSet();
         String sql = "select * from " + billTableName + " where requestId=" + requestId;
         recordSet.execute(sql);
         if (recordSet.next()) {
             //标题
             String title = Util.null2String(recordSet.getString("bt"));
-            String[] strArray = {"金融", "供应链", "融资"};
-            if (strContains(title,strArray)) {
+            String[] strArray = {"银行", "供应链", "融资"};
+            if (strContains(title, strArray)) {
                 newLog.info("++++++++》》》》》》包含关键词开始流程推送 砼联 系统 程序");
                 flowInfo.put("title", title);
                 //流程ID
@@ -149,7 +150,7 @@ public class Action20220706102143 extends BaseBean implements Action {
                         newLog.info("流程附件上传响应结果：" + msgfj);
                         if (!co.equals(map.get("code").toString())) {
                             requestInfo.getRequestManager().setMessageid("123#123");
-                            requestInfo.getRequestManager().setMessagecontent("附件推送 砼联 失败：" + msgfj);
+                            requestInfo.getRequestManager().setMessagecontent("正文推送 砼联 失败：" + msgfj);
                             return Action.FAILURE_AND_CONTINUE;
                         }
                     }
@@ -176,18 +177,21 @@ public class Action20220706102143 extends BaseBean implements Action {
     }
 
     /**
-     *  是否包含这三个关键此
+     * 是否包含这三个关键此
+     *
      * @param str
      * @return
      */
-    public static boolean strContains(String str,String[] strArray) {
-        boolean an = false;
+    public static boolean strContains(String str, String[] strArray) {
+        boolean u = false;
         for (String s : strArray) {
-            an = str.contains(s);
+            if (str.contains(s)) {
+                u=true;
+                return  u;
+            }
         }
-        return an;
+        return u;
     }
-
 
     /***
      *  正文 MAIN_BODY
@@ -200,6 +204,7 @@ public class Action20220706102143 extends BaseBean implements Action {
      */
     public ArrayList<Map<String, Object>> upDocFile(String cid, String flowCode, String fileType) {
 
+        newLog.info("上传文件开始");
         ArrayList<Map<String, Object>> maps = new ArrayList<>();
         if ("".equals(Util.null2String(cid))) {
             newLog.info("未获取到文档的ID");
@@ -210,8 +215,9 @@ public class Action20220706102143 extends BaseBean implements Action {
             if (fileType.equals(MAIN_BODY)) {
                 isextfile = "''";
             }
-            String sql = "select imagefilename,imagefileid,id,DOCID,isextfile  from docimagefile where docid in (?) and isextfile=" + isextfile;
-            recordSet.executeQuery(sql, cid);
+            String sql = "select imagefilename,imagefileid,id,DOCID,isextfile  from docimagefile where docid in ("+cid+") and isextfile=" + isextfile;
+            newLog.info("查询文件的sql："+sql);
+            recordSet.execute(sql);
             if (recordSet.next()) {
                 //文件名
                 String imageFileName = Util.null2String(recordSet.getString("imagefilename"));
@@ -230,9 +236,23 @@ public class Action20220706102143 extends BaseBean implements Action {
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
-                    //上传附件
-                    Map<String, Object> map = upLoaderFile(file, flowCode, fileType);
-                    maps.add(map);
+
+                    // 判断是不是附件和附件类型是不是excel
+                    String APPENDIX = Prop.getPropValue("ConcreteSystems", "APPENDIX");
+                    if (fileType.equals(APPENDIX)){
+                        String[] strArray = {".xls", ".xlsx"};
+                        String name = file.getName();
+                        String substring = name.substring(name.indexOf("."));
+                        if (strContains(substring,strArray)) {
+                            newLog.info("附件类型是excel开始上传");
+                            Map<String, Object> map = upLoaderFile(file, flowCode, fileType);
+                            maps.add(map);
+                        }
+                    }else {
+                        //上传正文和pdf
+                        Map<String, Object> map = upLoaderFile(file, flowCode, fileType);
+                        maps.add(map);
+                    }
                 }
             }
         }
@@ -263,12 +283,14 @@ public class Action20220706102143 extends BaseBean implements Action {
         parameterMap.put("effectiveDate", LocalDate.now().toString().replace("-", ""));
 
         //上传文件地址
-        // String url = "http://172.24.100.75:9203/expose/oa/upload";
+        //String url = "http://172.24.100.75:9203/expose/oa/upload";
         String url = Prop.getPropValue("ConcreteSystems", "TheAttachmentUrl");
         //发送请求
         String responseMessage = doFromPost(url, parameterMap, fileMap);
-        Map<String, Object> messageMap = JSONObject.parseObject(responseMessage, Map.class);
-        return messageMap;
+        String v = stream.delete() ? "清除临时文件" + stream.getName() + "成功" : "清除临时文件" + stream.getName() + "失败";
+        newLog.info(v);
+        return JSONObject.parseObject(responseMessage, Map.class);
+
 
     }
 
@@ -316,11 +338,11 @@ public class Action20220706102143 extends BaseBean implements Action {
      */
     public static String doFromPost(String url, Map<String, String> normalField, Map<String, File> fileField) {
 
-        HttpClient httpClient = new DefaultHttpClient();
+        HttpClient httpClient = HttpClientBuilder.create().build();
         String responseStr = "";
         try {
             HttpPost httpPost = new HttpPost(url);
-            httpPost.addHeader("access_token", "access_799e5054eec64f828eef3ce7d4ad63fc");
+            httpPost.addHeader("access-token", "access_799e5054eec64f828eef3ce7d4ad63fc");
             // 创建MultipartEntityBuilder
             MultipartEntityBuilder entityBuilder = MultipartEntityBuilder.create();
             // 追加普通表单字段
@@ -364,8 +386,7 @@ public class Action20220706102143 extends BaseBean implements Action {
         while ((length = inputStream.read(buffer)) != -1) {
             result.write(buffer, 0, length);
         }
-        String str = result.toString(StandardCharsets.UTF_8.name());
-        return str;
+        return result.toString(StandardCharsets.UTF_8.name());
     }
 
     /**
@@ -428,6 +449,7 @@ public class Action20220706102143 extends BaseBean implements Action {
             //审批人ID
             String usr = Util.null2String(recordSet.getString("usr"));
             nodeInfo.put("approveUserId", usr);
+            nodeInfo.put("approveUserName", getUsr(Integer.parseInt(usr)));
             //审批意见
             String msg = Util.null2String(recordSet.getString("msg"));
             nodeInfo.put("approveMsg", msg);
@@ -447,7 +469,7 @@ public class Action20220706102143 extends BaseBean implements Action {
         String rep = "";
         HttpClient httpClient = new DefaultHttpClient();
         HttpPost httpPost = new HttpPost(url);
-        httpPost.addHeader("access_token", "access_799e5054eec64f828eef3ce7d4ad63fc");
+        httpPost.addHeader("access-token", "access_799e5054eec64f828eef3ce7d4ad63fc");
         httpPost.addHeader("Accept", "application/json");
         httpPost.setHeader("Content-Type", "application/json");
         String charSet = "UTF-8";
